@@ -346,4 +346,111 @@ client.on('messageDelete', async (message) => {
         embed.addFields({ name: 'Content', value: message.content.substring(0, 1024) });
     }
     
-    await logChannel.send({
+    await logChannel.send({ embeds: [embed] });
+});
+
+// Message edit logging
+client.on('messageUpdate', async (oldMessage, newMessage) => {
+    if (oldMessage.author?.bot || !oldMessage.guild) return;
+    if (oldMessage.content === newMessage.content) return;
+    
+    const logChannelId = client.logChannels.get(oldMessage.guild.id);
+    if (!logChannelId) return;
+    
+    const logChannel = await client.channels.fetch(logChannelId).catch(() => null);
+    if (!logChannel) return;
+    
+    const embed = new EmbedBuilder()
+        .setColor(config.colors.messageEdit)
+        .setTitle('✏️ Message Edited')
+        .setDescription(`**Author:** ${oldMessage.author.tag}\n**Channel:** ${newMessage.channel}\n[Jump to Message](${newMessage.url})`)
+        .setThumbnail(oldMessage.author.displayAvatarURL({ dynamic: true }))
+        .setTimestamp();
+    
+    if (oldMessage.content) {
+        embed.addFields({ name: 'Before', value: oldMessage.content.substring(0, 1024) });
+    }
+    if (newMessage.content) {
+        embed.addFields({ name: 'After', value: newMessage.content.substring(0, 1024) });
+    }
+    
+    await logChannel.send({ embeds: [embed] });
+});
+
+// Member join logging
+client.on('guildMemberAdd', async (member) => {
+    const logChannelId = client.logChannels.get(member.guild.id);
+    if (!logChannelId) return;
+    
+    const logChannel = await client.channels.fetch(logChannelId).catch(() => null);
+    if (!logChannel) return;
+    
+    const accountAge = Math.floor((Date.now() - member.user.createdAt) / (1000 * 60 * 60 * 24));
+    const isNew = accountAge < 7 ? ' ⚠️ New Account!' : '';
+    
+    const embed = new EmbedBuilder()
+        .setColor(config.colors.memberJoin)
+        .setTitle('👋 Member Joined')
+        .setDescription(`**User:** ${member.user.tag}${isNew}\n**Account Created:** <t:${Math.floor(member.user.createdAt.getTime() / 1000)}:R>\n**Member Count:** ${member.guild.memberCount}`)
+        .setThumbnail(member.user.displayAvatarURL({ dynamic: true }))
+        .setTimestamp();
+    
+    await logChannel.send({ embeds: [embed] });
+});
+
+// Member leave logging
+client.on('guildMemberRemove', async (member) => {
+    const logChannelId = client.logChannels.get(member.guild.id);
+    if (!logChannelId) return;
+    
+    const logChannel = await client.channels.fetch(logChannelId).catch(() => null);
+    if (!logChannel) return;
+    
+    const embed = new EmbedBuilder()
+        .setColor(config.colors.memberLeave)
+        .setTitle('👋 Member Left')
+        .setDescription(`**User:** ${member.user.tag}\n**Member Count:** ${member.guild.memberCount}`)
+        .setThumbnail(member.user.displayAvatarURL({ dynamic: true }))
+        .setTimestamp();
+    
+    await logChannel.send({ embeds: [embed] });
+});
+
+// Command handling
+client.on('interactionCreate', async (interaction) => {
+    if (!interaction.isChatInputCommand()) return;
+    
+    const command = client.commands.get(interaction.commandName);
+    if (!command) return;
+    
+    // Cooldowns
+    const { cooldowns } = client;
+    if (!cooldowns.has(command.data.name)) {
+        cooldowns.set(command.data.name, new Collection());
+    }
+    
+    const now = Date.now();
+    const timestamps = cooldowns.get(command.data.name);
+    const cooldownAmount = (command.cooldown || 3) * 1000;
+    
+    if (timestamps.has(interaction.user.id)) {
+        const expirationTime = timestamps.get(interaction.user.id) + cooldownAmount;
+        if (now < expirationTime) {
+            const timeLeft = Math.round(expirationTime / 1000);
+            return interaction.reply({ content: `⏰ Wait <t:${timeLeft}:R>`, ephemeral: true });
+        }
+    }
+    
+    timestamps.set(interaction.user.id, now);
+    setTimeout(() => timestamps.delete(interaction.user.id), cooldownAmount);
+    
+    try {
+        await command.execute(interaction, client);
+    } catch (error) {
+        console.error(error);
+        await interaction.reply({ content: '❌ Error executing command!', ephemeral: true });
+    }
+});
+
+// Login
+client.login(process.env.TOKEN);
