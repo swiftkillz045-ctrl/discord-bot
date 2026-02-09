@@ -1,13 +1,30 @@
 const express = require('express');
-const { Client, GatewayIntentBits, Partials, Collection, EmbedBuilder, PermissionFlagsBits, ChannelType, ActivityType } = require('discord.js');
+const { Client, GatewayIntentBits, Partials, Collection, EmbedBuilder, PermissionFlagsBits, ChannelType, ActivityType, Routes, REST } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
-const ms = require('ms');
 
-// Keep bot alive with web server
+// Keep bot alive with web server (REQUIRED for Replit)
 const app = express();
-app.get('/', (req, res) => res.send('Bot is online! 🟢'));
-app.listen(3000, () => console.log('Keep-alive server running on port 3000'));
+app.get('/', (req, res) => {
+    res.send(`
+        <h1>🤖 Bot is Online!</h1>
+        <p>Status: ${client.user ? `Logged in as ${client.user.tag}` : 'Starting...'}</p>
+        <p>Uptime: ${Math.floor(process.uptime() / 60)} minutes</p>
+        <p>Guilds: ${client.guilds ? client.guilds.cache.size : 0}</p>
+    `);
+});
+
+app.listen(3000, '0.0.0.0', () => {
+    console.log('🌐 Keep-alive server running on port 3000');
+});
+
+// Self-ping every 3 minutes to prevent Replit from sleeping
+setInterval(() => {
+    const url = `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co`;
+    fetch(url)
+        .then(() => console.log(`[${new Date().toLocaleTimeString()}] Self-ping OK`))
+        .catch(err => console.log(`[${new Date().toLocaleTimeString()}] Self-ping failed:`, err.message));
+}, 180000);
 
 // Bot setup
 const client = new Client({
@@ -308,10 +325,22 @@ client.commands.set('roll', {
 
 // ==================== EVENTS ====================
 
-client.once('ready', () => {
-    console.log(`Logged in as ${client.user.tag}`);
-    console.log(`Serving ${client.guilds.cache.size} guilds`);
+client.once('ready', async () => {
+    console.log(`✅ Logged in as ${client.user.tag}`);
+    console.log(`🌐 Serving ${client.guilds.cache.size} guilds`);
     client.user.setActivity('your commands', { type: ActivityType.Listening });
+    
+    // Register slash commands globally
+    const commands = Array.from(client.commands.values()).map(cmd => cmd.data);
+    const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
+    
+    try {
+        console.log('🔄 Refreshing application commands...');
+        await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
+        console.log('✅ Successfully registered commands globally!');
+    } catch (error) {
+        console.error('❌ Error registering commands:', error);
+    }
     
     // Load saved log channels
     const filePath = path.join(logsDir, 'channels.json');
@@ -320,7 +349,7 @@ client.once('ready', () => {
         for (const [guildId, channelId] of Object.entries(data)) {
             client.logChannels.set(guildId, channelId);
         }
-        console.log('Loaded log channels');
+        console.log('📋 Loaded log channels');
     }
 });
 
@@ -363,7 +392,7 @@ client.on('messageUpdate', async (oldMessage, newMessage) => {
     const embed = new EmbedBuilder()
         .setColor(config.colors.messageEdit)
         .setTitle('✏️ Message Edited')
-        .setDescription(`**Author:** ${oldMessage.author.tag}\n**Channel:** ${newMessage.channel}\n[Jump to Message](${newMessage.url})`)
+        .setDescription(`**Author:** ${oldMessage.author.tag}\n**Channel:** ${oldMessage.channel}\n[Jump to Message](${newMessage.url})`)
         .setThumbnail(oldMessage.author.displayAvatarURL({ dynamic: true }))
         .setTimestamp();
     
